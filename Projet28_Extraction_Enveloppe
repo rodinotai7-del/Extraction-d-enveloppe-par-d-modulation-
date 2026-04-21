@@ -1,0 +1,90 @@
+"""
+Projet 28 - Extraction d’enveloppe par démodulation (diagnostic vibratoire)
+Auteur : TAI Rodino
+Date : 2024
+Description : Détection automatique de fréquence de défaut sur signal simulé avec saisie utilisateur
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import hilbert, butter, filtfilt, find_peaks
+from scipy.fft import fft, fftfreq
+
+print("Les valeurs par défaut sont indiquées entre crochets []. Appuie juste sur Entrée pour les garder.\n")
+
+# --- Saisie des paramètres utilisateur ---
+try:
+    fs = float(input("Fréquence d’échantillonnage [Hz] (par défaut 10000) : ") or 10000)
+    duree = float(input("Durée du signal [s] (par défaut 0.1) : ") or 0.1)
+    fc = float(input("Fréquence porteuse (résonance) [Hz] (par défaut 2000) : ") or 2000)
+    fm = float(input("Fréquence de défaut (modulation) [Hz] (par défaut 50) : ") or 50)
+    am = float(input("Profondeur de modulation (0–1) (par défaut 0.5) : ") or 0.5)
+    bruit_niveau = float(input("Niveau de bruit (0–1) (par défaut 0.2) : ") or 0.2)
+except ValueError:
+    print("\n⚠️ Valeur non valide, on garde les paramètres par défaut.")
+    fs, duree, fc, fm, am, bruit_niveau = 10000, 0.1, 2000, 50, 0.5, 0.2
+
+print("\n▶️ Simulation avec :")
+print(f"fs = {fs} Hz, durée = {duree} s, fc = {fc} Hz, fm = {fm} Hz, am = {am}, bruit = {bruit_niveau}\n")
+
+# --- Création du signal ---
+t = np.arange(0, duree, 1/fs)
+m = 1 + am * np.cos(2*np.pi*fm*t)
+x = m * np.cos(2*np.pi*fc*t)
+x_bruite = x + bruit_niveau * np.random.randn(len(t))
+
+# --- Filtrage passe-bande ---
+def filtre_passe_bande(signal, fs, fc, largeur):
+    low = (fc - largeur) / (fs/2)
+    high = (fc + largeur) / (fs/2)
+    b, a = butter(4, [low, high], btype='band')
+    return filtfilt(b, a, signal)
+
+x_filtre = filtre_passe_bande(x_bruite, fs, fc, 200)
+
+# --- Extraction d’enveloppe (Hilbert) ---
+analytic = hilbert(x_filtre)
+envelope = np.abs(analytic)
+
+# --- FFT de l’enveloppe ---
+N = len(envelope)
+freqs = fftfreq(N, 1/fs)
+fft_env = np.abs(fft(envelope)) / N
+freqs_pos = freqs[:N//2]
+fft_env_pos = fft_env[:N//2]
+
+# --- Détection des pics ---
+peaks, _ = find_peaks(fft_env_pos, height=0.1*np.max(fft_env_pos))
+if len(peaks) > 0:
+    freq_defaut = freqs_pos[peaks[np.argmax(fft_env_pos[peaks])]]
+    print(f"✅ Fréquence de défaut détectée : {freq_defaut:.2f} Hz")
+else:
+    print("❌ Aucun pic significatif détecté.")
+
+# --- Affichage graphique ---
+plt.figure(figsize=(10,9))
+
+plt.subplot(3,1,1)
+plt.plot(t, x_bruite, color="gray", label="Signal bruité")
+plt.plot(t, x_filtre, color="blue", label="Signal filtré")
+plt.legend()
+plt.title("Signal bruité et filtré")
+plt.xlabel("Temps [s]")
+plt.ylabel("Amplitude")
+
+plt.subplot(3,1,2)
+plt.plot(t, envelope, color="red")
+plt.title("Enveloppe extraite (Analyse de Hilbert)")
+plt.xlabel("Temps [s]")
+plt.ylabel("Amplitude")
+
+plt.subplot(3,1,3)
+plt.plot(freqs_pos, fft_env_pos, color="green", label="Spectre de l’enveloppe")
+if len(peaks) > 0:
+    plt.plot(freqs_pos[peaks], fft_env_pos[peaks], "rx", label="Pics détectés")
+plt.title("Détection automatique de fréquence de défaut")
+plt.xlabel("Fréquence [Hz]")
+plt.ylabel("Amplitude")
+plt.legend()
+plt.tight_layout()
+plt.show()
